@@ -119,5 +119,5 @@ Today's total: 222 cal, 15.3g protein (10% of goal)
 
 ## Support
 
-- [GitHub Issues](https://github.com/yourusername/macro-tracker/issues)
+- [GitHub Issues](https://github.com/siddhantjain/macro-tracker/issues)
 - [Contributing Guide](contributing.md)
