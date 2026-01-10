@@ -1,0 +1,35 @@
+title: Macro Tracker
+description: AI-native food and water tracking for LLM-powered assistants
+theme: jekyll-theme-cayman
+show_downloads: true
+google_analytics:
+
+# GitHub Pages settings
+baseurl: "/macro-tracker"
+url: "https://yourusername.github.io"
+
+# Markdown settings
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+
+# Exclude from build
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+
+# Navigation
+navigation:
+  - title: Home
+    url: /
+  - title: Tool Reference
+    url: /tool-reference
+  - title: API
+    url: /api
+  - title: Architecture
+    url: /architecture
+  - title: Providers
+    url: /providers
