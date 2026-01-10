@@ -6,7 +6,7 @@ google_analytics:
 
 # GitHub Pages settings
 baseurl: "/macro-tracker"
-url: "https://yourusername.github.io"
+url: "https://siddhantjain.github.io"
 
 # Markdown settings
 markdown: kramdown
