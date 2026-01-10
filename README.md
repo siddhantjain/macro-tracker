@@ -21,11 +21,24 @@ Macro Tracker is designed to be used by AI assistants as a tool. Tell your AI wh
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/macro-tracker.git
+git clone https://github.com/siddhantjain/macro-tracker.git
 cd macro-tracker
 ```
 
 No dependencies required — uses Python standard library only.
+
+### USDA API Key (Required)
+
+Get a **free** API key from USDA FoodData Central:
+
+1. Sign up at https://fdc.nal.usda.gov/api-key-signup.html
+2. Check your email for the key (instant)
+3. Add to `.env` file:
+   ```
+   USDA_API_KEY=your_key_here
+   ```
+
+The free key gives you **3,600 requests/hour** — plenty for personal use!
 
 ### Basic Usage
 

@@ -28,9 +28,24 @@ Macro Tracker is a nutrition tracking system designed to be used by AI assistant
 ### Installation
 
 ```bash
-git clone https://github.com/yourusername/macro-tracker.git
+git clone https://github.com/siddhantjain/macro-tracker.git
 cd macro-tracker
-python -m src.server  # Start dashboard on port 4001
+```
+
+### Get Your USDA API Key (Free)
+
+1. Sign up: https://fdc.nal.usda.gov/api-key-signup.html
+2. Add to `.env`:
+   ```
+   USDA_API_KEY=your_key_here
+   ```
+
+Free tier: **3,600 requests/hour** — more than enough!
+
+### Run
+
+```bash
+python -m src.server  # Dashboard on port 4001
 ```
 
 ### Basic Usage
