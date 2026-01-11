@@ -88,6 +88,34 @@ class TestFoodTracking:
         assert result["error"] == "nutrition_not_found"
         assert "notfound item" in result["message"]
 
+    def test_log_food_not_found_preserves_input(self, tracker):
+        """Error response should include original input for retry."""
+        result = tracker.log_food("notfound xyz", quantity=2.5, unit="cup")
+        
+        assert result["logged"] == False
+        assert result["name"] == "notfound xyz"
+        assert result["quantity"] == 2.5
+        assert result["unit"] == "cup"
+
+    def test_log_food_not_found_can_retry_with_manual(self, tracker):
+        """After not found error, can retry with manual values."""
+        # First attempt fails
+        result1 = tracker.log_food("notfound item")
+        assert result1["logged"] == False
+        
+        # Retry with manual values succeeds
+        result2 = tracker.log_food(
+            "notfound item",
+            calories=100,
+            protein_g=5,
+            carbs_g=10,
+            fat_g=2
+        )
+        assert "logged" not in result2 or result2.get("logged") != False
+        assert result2["calories"] == 100
+        assert result2["protein_g"] == 5
+        assert result2["source"] == "manual"
+
     def test_search_food_returns_results(self, tracker):
         """Search should return nutrition info."""
         results = tracker.search_food("chicken")
