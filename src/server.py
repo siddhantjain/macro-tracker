@@ -162,15 +162,22 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
     next_day = (day + timedelta(days=1)).isoformat()
     is_today = day == today
     
+    goals = tracker.get_goals()
     week_data = []
     for i in range(6, -1, -1):
         d = day - timedelta(days=i)
         s = tracker.get_daily_summary(d, timezone)
+        # Calculate deviation from goals (positive = exceeded, negative = missed)
+        protein_diff = s['food']['protein_g'] - goals.get('protein_g', 150)
+        water_diff_pct = ((s['water']['total_ml'] / goals.get('water_ml', 2218)) - 1) * 100
         week_data.append({
             'date': d.isoformat(),
-            'calories': s['food']['calories'],
             'protein': s['food']['protein_g'],
+            'protein_goal': goals.get('protein_g', 150),
+            'protein_diff': round(protein_diff, 1),
             'water_ml': s['water']['total_ml'],
+            'water_goal': goals.get('water_ml', 2218),
+            'water_diff_pct': round(water_diff_pct, 1),
         })
 
     return f'''<!DOCTYPE html>
@@ -425,9 +432,12 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
         </div>
 
         <div class="section">
-            <h2>📈 Past 7 Days</h2>
+            <h2>📈 Goal Progress (Past 7 Days)</h2>
             <div class="chart-container">
-                <canvas id="trendChart"></canvas>
+                <canvas id="proteinChart"></canvas>
+            </div>
+            <div class="chart-container" style="margin-top: 15px;">
+                <canvas id="waterChart"></canvas>
             </div>
         </div>
 
@@ -440,22 +450,72 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
     </div>
     <script>
         const weekData = {json.dumps(week_data)};
-        new Chart(document.getElementById('trendChart').getContext('2d'), {{
-            type: 'line',
+        const proteinGoal = {goals.get('protein_g', 150)};
+        const waterGoal = {goals.get('water_ml', 2218)};
+        
+        // Protein chart - bar chart showing vs goal
+        new Chart(document.getElementById('proteinChart').getContext('2d'), {{
+            type: 'bar',
             data: {{
                 labels: weekData.map(d => d.date.slice(5)),
                 datasets: [
-                    {{ label: 'Calories', data: weekData.map(d => d.calories), borderColor: '#e94560', tension: 0.3, yAxisID: 'y' }},
-                    {{ label: 'Protein (g)', data: weekData.map(d => d.protein), borderColor: '#4ecca3', tension: 0.3, yAxisID: 'y1' }}
+                    {{ 
+                        label: 'Protein (g)', 
+                        data: weekData.map(d => d.protein), 
+                        backgroundColor: weekData.map(d => d.protein >= proteinGoal ? '#4ecca3' : '#e94560'),
+                        borderRadius: 4
+                    }}
                 ]
             }},
             options: {{
                 responsive: true,
-                plugins: {{ legend: {{ labels: {{ color: '#888' }} }} }},
+                plugins: {{ 
+                    legend: {{ display: false }},
+                    title: {{ display: true, text: '💪 Protein (goal: ' + proteinGoal + 'g)', color: '#888' }},
+                    annotation: {{
+                        annotations: {{
+                            goalLine: {{
+                                type: 'line',
+                                yMin: proteinGoal,
+                                yMax: proteinGoal,
+                                borderColor: '#fff',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                label: {{ display: true, content: 'Goal', position: 'end', color: '#fff' }}
+                            }}
+                        }}
+                    }}
+                }},
                 scales: {{
-                    x: {{ ticks: {{ color: '#666' }}, grid: {{ color: 'rgba(255,255,255,0.05)' }} }},
-                    y: {{ position: 'left', ticks: {{ color: '#e94560' }}, grid: {{ color: 'rgba(255,255,255,0.05)' }} }},
-                    y1: {{ position: 'right', ticks: {{ color: '#4ecca3' }}, grid: {{ drawOnChartArea: false }} }}
+                    x: {{ ticks: {{ color: '#666' }}, grid: {{ display: false }} }},
+                    y: {{ ticks: {{ color: '#888' }}, grid: {{ color: 'rgba(255,255,255,0.05)' }}, beginAtZero: true }}
+                }}
+            }}
+        }});
+        
+        // Water chart - bar chart showing vs goal  
+        new Chart(document.getElementById('waterChart').getContext('2d'), {{
+            type: 'bar',
+            data: {{
+                labels: weekData.map(d => d.date.slice(5)),
+                datasets: [
+                    {{ 
+                        label: 'Water (ml)', 
+                        data: weekData.map(d => d.water_ml), 
+                        backgroundColor: weekData.map(d => d.water_ml >= waterGoal ? '#00adb5' : '#e94560'),
+                        borderRadius: 4
+                    }}
+                ]
+            }},
+            options: {{
+                responsive: true,
+                plugins: {{ 
+                    legend: {{ display: false }},
+                    title: {{ display: true, text: '💧 Water (goal: ' + (waterGoal/1000).toFixed(1) + 'L)', color: '#888' }}
+                }},
+                scales: {{
+                    x: {{ ticks: {{ color: '#666' }}, grid: {{ display: false }} }},
+                    y: {{ ticks: {{ color: '#888', callback: v => (v/1000).toFixed(1) + 'L' }}, grid: {{ color: 'rgba(255,255,255,0.05)' }}, beginAtZero: true }}
                 }}
             }}
         }});
