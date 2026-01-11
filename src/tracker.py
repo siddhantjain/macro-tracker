@@ -10,13 +10,18 @@ from .storage.json_store import JsonStore, FoodEntry, default_store
 class MacroTracker:
     """Main tracker class for food and water logging."""
 
+    # Default timezone for the user
+    DEFAULT_TIMEZONE = "America/Los_Angeles"
+
     def __init__(
         self,
         provider=None,
         store=None,
+        timezone: str = None,
     ):
         self.provider = provider or default_provider
         self.store = store or default_store
+        self.timezone = timezone or self.DEFAULT_TIMEZONE
 
     # ─────────────────────────────────────────────────────────────
     # Food tracking
@@ -103,18 +108,38 @@ class MacroTracker:
         )
         return self.store.log_food(entry)
 
-    def get_food_log(self, day: date = None) -> list[dict]:
-        """Get all food entries for a day."""
-        return self.store.get_food_log(day)
+    def get_food_log(self, day: date = None, timezone: str = None) -> list[dict]:
+        """Get all food entries for a day.
+        
+        Args:
+            day: Date (in the specified timezone)
+            timezone: Timezone name. Defaults to tracker's timezone.
+        """
+        timezone = timezone or self.timezone
+        return self.store.get_food_log(day, timezone)
 
-    def get_daily_summary(self, day: date = None) -> dict:
-        """Get daily macro summary with progress toward goals."""
-        macros = self.store.get_daily_macros(day)
-        water = self.store.get_daily_water(day)
+    def get_daily_summary(self, day: date = None, timezone: str = None) -> dict:
+        """Get daily macro summary with progress toward goals.
+        
+        Args:
+            day: Date (in the specified timezone). Defaults to today.
+            timezone: Timezone name (e.g., 'America/Los_Angeles'). 
+                      Defaults to tracker's timezone.
+        """
+        timezone = timezone or self.timezone
+        
+        # Use timezone-aware "today" if day not specified
+        if day is None:
+            from zoneinfo import ZoneInfo
+            day = datetime.now(ZoneInfo(timezone)).date()
+        
+        macros = self.store.get_daily_macros(day, timezone)
+        water = self.store.get_daily_water(day, timezone)
         goals = self.store.get_goals()
         
         return {
-            "date": (day or date.today()).isoformat(),
+            "date": day.isoformat(),
+            "timezone": timezone,
             "food": {
                 "calories": macros["calories"],
                 "protein_g": macros["protein_g"],
@@ -164,13 +189,27 @@ class MacroTracker:
 
         return self.store.log_water(amount_ml)
 
-    def get_water_status(self, day: date = None) -> dict:
-        """Get water intake status for a day."""
-        water = self.store.get_daily_water(day)
+    def get_water_status(self, day: date = None, timezone: str = None) -> dict:
+        """Get water intake status for a day.
+        
+        Args:
+            day: Date (in the specified timezone)
+            timezone: Timezone name. Defaults to tracker's timezone.
+        """
+        timezone = timezone or self.timezone
+        
+        # Use timezone-aware "today" if day not specified
+        if day is None:
+            from zoneinfo import ZoneInfo
+            day = datetime.now(ZoneInfo(timezone)).date()
+        
+        water = self.store.get_daily_water(day, timezone)
         goals = self.store.get_goals()
         goal_ml = goals.get("water_ml", 3000)
         
         return {
+            "date": day.isoformat(),
+            "timezone": timezone,
             "total_ml": water["total_ml"],
             "total_liters": water["total_liters"],
             "glasses": water["glasses"],

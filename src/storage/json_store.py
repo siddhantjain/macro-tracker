@@ -1,10 +1,11 @@
 """JSON file-based storage for tracking data."""
 import json
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass, asdict
+from zoneinfo import ZoneInfo
 
 
 @dataclass
@@ -32,15 +33,16 @@ class WaterEntry:
 class JsonStore:
     """JSON file-based storage."""
 
-    def __init__(self, data_dir: str = None):
+    def __init__(self, data_dir: str = None, default_timezone: str = "UTC"):
         if data_dir is None:
             # Default to data/ in the package directory
             data_dir = Path(__file__).parent.parent.parent / "data"
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.default_timezone = default_timezone
 
     def _get_file(self, category: str, day: date = None) -> Path:
-        """Get the file path for a category and date."""
+        """Get the file path for a category and date (UTC)."""
         if day is None:
             day = date.today()
         return self.data_dir / f"{category}_{day.isoformat()}.json"
@@ -52,6 +54,85 @@ class JsonStore:
             with open(path) as f:
                 return json.load(f)
         return []
+
+    def _get_local_day_utc_range(self, local_date: date, timezone: str) -> tuple[datetime, datetime]:
+        """Get UTC datetime range for a local date.
+        
+        Args:
+            local_date: The date in local timezone
+            timezone: Timezone name (e.g., 'America/Los_Angeles')
+            
+        Returns:
+            Tuple of (start_utc, end_utc) datetimes
+        """
+        tz = ZoneInfo(timezone)
+        # Start of local day in local timezone
+        local_start = datetime(local_date.year, local_date.month, local_date.day, 0, 0, 0, tzinfo=tz)
+        # End of local day (start of next day)
+        local_end = local_start + timedelta(days=1)
+        # Convert to UTC
+        utc_start = local_start.astimezone(ZoneInfo("UTC"))
+        utc_end = local_end.astimezone(ZoneInfo("UTC"))
+        return utc_start, utc_end
+
+    def _load_for_local_day(self, category: str, local_date: date = None, timezone: str = None) -> list:
+        """Load entries for a local day, potentially spanning multiple UTC files.
+        
+        Args:
+            category: 'food' or 'water'
+            local_date: Date in the user's local timezone (defaults to today in that tz)
+            timezone: Timezone name (e.g., 'America/Los_Angeles')
+            
+        Returns:
+            List of entries that fall within the local day
+        """
+        timezone = timezone or self.default_timezone
+        
+        # If no timezone awareness needed, use simple load
+        if timezone == "UTC":
+            return self._load(category, local_date)
+        
+        tz = ZoneInfo(timezone)
+        if local_date is None:
+            local_date = datetime.now(tz).date()
+        
+        # Get UTC range for this local day
+        utc_start, utc_end = self._get_local_day_utc_range(local_date, timezone)
+        
+        # Determine which UTC dates we need to load
+        # The local day might span 2 UTC dates
+        utc_dates = set()
+        utc_dates.add(utc_start.date())
+        utc_dates.add((utc_end - timedelta(seconds=1)).date())  # End is exclusive, so check just before
+        
+        # Load entries from all relevant UTC date files
+        all_entries = []
+        for utc_date in utc_dates:
+            all_entries.extend(self._load(category, utc_date))
+        
+        # Filter to only entries within the local day's UTC range
+        filtered = []
+        for entry in all_entries:
+            ts_str = entry.get("timestamp", "")
+            try:
+                # Parse the ISO timestamp
+                if ts_str.endswith("Z"):
+                    ts_str = ts_str[:-1] + "+00:00"
+                entry_dt = datetime.fromisoformat(ts_str)
+                # Make timezone-aware if naive (assume UTC)
+                if entry_dt.tzinfo is None:
+                    entry_dt = entry_dt.replace(tzinfo=ZoneInfo("UTC"))
+                else:
+                    entry_dt = entry_dt.astimezone(ZoneInfo("UTC"))
+                
+                # Check if within range
+                if utc_start <= entry_dt < utc_end:
+                    filtered.append(entry)
+            except (ValueError, TypeError):
+                # If timestamp parsing fails, skip this entry
+                continue
+        
+        return filtered
 
     def _save(self, category: str, entries: list, day: date = None):
         """Save entries to a file."""
@@ -68,13 +149,25 @@ class JsonStore:
         self._save("food", entries)
         return entry_dict
 
-    def get_food_log(self, day: date = None) -> list[dict]:
-        """Get food log for a day."""
-        return self._load("food", day)
+    def get_food_log(self, day: date = None, timezone: str = None) -> list[dict]:
+        """Get food log for a day.
+        
+        Args:
+            day: Date (in the specified timezone)
+            timezone: Timezone name (e.g., 'America/Los_Angeles'). Defaults to store's default.
+        """
+        timezone = timezone or self.default_timezone
+        return self._load_for_local_day("food", day, timezone)
 
-    def get_daily_macros(self, day: date = None) -> dict:
-        """Get totals for a day."""
-        entries = self._load("food", day)
+    def get_daily_macros(self, day: date = None, timezone: str = None) -> dict:
+        """Get totals for a day.
+        
+        Args:
+            day: Date (in the specified timezone)
+            timezone: Timezone name (e.g., 'America/Los_Angeles'). Defaults to store's default.
+        """
+        timezone = timezone or self.default_timezone
+        entries = self._load_for_local_day("food", day, timezone)
         totals = {
             "calories": 0,
             "protein_g": 0,
@@ -102,13 +195,25 @@ class JsonStore:
         self._save("water", entries)
         return entry_dict
 
-    def get_water_log(self, day: date = None) -> list[dict]:
-        """Get water log for a day."""
-        return self._load("water", day)
+    def get_water_log(self, day: date = None, timezone: str = None) -> list[dict]:
+        """Get water log for a day.
+        
+        Args:
+            day: Date (in the specified timezone)
+            timezone: Timezone name (e.g., 'America/Los_Angeles'). Defaults to store's default.
+        """
+        timezone = timezone or self.default_timezone
+        return self._load_for_local_day("water", day, timezone)
 
-    def get_daily_water(self, day: date = None) -> dict:
-        """Get water totals for a day."""
-        entries = self._load("water", day)
+    def get_daily_water(self, day: date = None, timezone: str = None) -> dict:
+        """Get water totals for a day.
+        
+        Args:
+            day: Date (in the specified timezone)
+            timezone: Timezone name (e.g., 'America/Los_Angeles'). Defaults to store's default.
+        """
+        timezone = timezone or self.default_timezone
+        entries = self._load_for_local_day("water", day, timezone)
         total_ml = sum(e.get("amount_ml", 0) for e in entries)
         return {
             "total_ml": total_ml,

@@ -95,13 +95,18 @@ tracker.log_water(1.5, "liters")
 Get complete daily stats with goal progress.
 
 ```python
-tracker.get_daily_summary(day=None)  # None = today
+tracker.get_daily_summary(day=None, timezone=None)  # None = today in tracker's timezone
 ```
+
+**Parameters:**
+- `day` (date): Date to query (in the specified timezone). Defaults to today.
+- `timezone` (str): Timezone name (e.g., "America/Los_Angeles"). Defaults to tracker's timezone.
 
 **Returns:**
 ```python
 {
     "date": "2026-01-10",
+    "timezone": "America/Los_Angeles",
     "food": {
         "calories": 1250,
         "protein_g": 85,
@@ -272,10 +277,40 @@ This keeps the tracker focused on storage/USDA lookup, while the LLM orchestrate
 
 ---
 
+## Timezone Handling
+
+The tracker stores data in UTC but queries can be timezone-aware.
+
+**Default timezone:** `America/Los_Angeles` (California)
+
+**How it works:**
+- Entries are stored with UTC timestamps in UTC-dated files
+- When querying, the tracker converts your local date to a UTC time range
+- It reads from potentially multiple UTC files and filters by timestamp
+
+**Example:**
+```python
+# Query "today" in California time (even if server is UTC)
+tracker.get_daily_summary()  # Uses default timezone
+
+# Query a specific timezone
+tracker.get_daily_summary(timezone="America/New_York")
+
+# Query in UTC (old behavior)
+tracker.get_daily_summary(timezone="UTC")
+```
+
+**Why this matters:**
+If you log water at 5pm California time (Jan 10), that's 1am UTC (Jan 11).
+Without timezone awareness, your "Jan 10" summary would be missing that entry.
+With timezone awareness, "Jan 10 California" correctly includes all entries from that local day.
+
+---
+
 ## Data Storage
 
-- Food logs: `data/food_YYYY-MM-DD.json`
-- Water logs: `data/water_YYYY-MM-DD.json`  
+- Food logs: `data/food_YYYY-MM-DD.json` (UTC dates)
+- Water logs: `data/water_YYYY-MM-DD.json` (UTC dates)
 - Goals: `data/goals.json`
 
 All data is local. No cloud sync.
