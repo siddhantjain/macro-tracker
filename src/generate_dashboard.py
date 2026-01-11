@@ -1,30 +1,47 @@
 #!/usr/bin/env python3
 """Generate a static dashboard HTML with embedded data."""
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from .tracker import tracker
 
 
-def generate_dashboard():
-    """Generate dashboard HTML with current data embedded."""
+# Default timezone for dashboard
+DEFAULT_TIMEZONE = "America/Los_Angeles"
+
+
+def generate_dashboard(timezone: str = None):
+    """Generate dashboard HTML with current data embedded.
     
-    # Get data
-    today = date.today()
-    summary = tracker.get_daily_summary(today)
-    food_log = tracker.get_food_log(today)
+    Args:
+        timezone: Timezone name (e.g., 'America/Los_Angeles'). 
+                  Defaults to DEFAULT_TIMEZONE.
+    """
+    timezone = timezone or DEFAULT_TIMEZONE
+    tz = ZoneInfo(timezone)
+    
+    # Get "today" in the user's timezone
+    today = datetime.now(tz).date()
+    
+    # Get data using timezone-aware queries
+    summary = tracker.get_daily_summary(today, timezone)
+    food_log = tracker.get_food_log(today, timezone)
     
     # Get week data
     week_data = []
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
-        s = tracker.get_daily_summary(d)
+        s = tracker.get_daily_summary(d, timezone)
         week_data.append({
             'date': d.isoformat(),
             'calories': s['food']['calories'],
             'protein': s['food']['protein_g'],
             'water_ml': s['water']['total_ml'],
         })
+    
+    # Friendly timezone name
+    tz_short = datetime.now(tz).strftime('%Z')  # e.g., "PST" or "PDT"
     
     html = f'''<!DOCTYPE html>
 <html lang="en">
@@ -155,7 +172,7 @@ def generate_dashboard():
             </div>
         </div>
         
-        <div class="refresh">Data as of {today.isoformat()} • Tell Neo to refresh dashboard</div>
+        <div class="refresh">Data as of {today.isoformat()} ({tz_short}) • Tell Neo to refresh dashboard</div>
     </div>
 
     <script>
