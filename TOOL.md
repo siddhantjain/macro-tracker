@@ -307,10 +307,30 @@ With timezone awareness, "Jan 10 California" correctly includes all entries from
 
 ---
 
+## Test Mode
+
+When testing interactively, use test mode to avoid polluting the production database:
+
+```python
+# Option 1: Environment variable
+import os
+os.environ['MACRO_TRACKER_TEST_MODE'] = '1'
+from src.tracker import MacroTracker
+tracker = MacroTracker()  # Will use data_test/ directory
+
+# Option 2: Constructor flag
+tracker = MacroTracker(test_mode=True)
+```
+
+Test mode uses `data_test/` instead of `data/` for all storage.
+
+---
+
 ## Data Storage
 
 - Food logs: `data/food_YYYY-MM-DD.json` (UTC dates)
 - Water logs: `data/water_YYYY-MM-DD.json` (UTC dates)
 - Goals: `data/goals.json`
+- Test data: `data_test/` (when test_mode=True)
 
 All data is local. No cloud sync.

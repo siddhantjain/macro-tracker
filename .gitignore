@@ -34,3 +34,6 @@ dashboard/
 # Secrets
 *.token
 .dashboard_token
+
+# Test data directory
+data_test/

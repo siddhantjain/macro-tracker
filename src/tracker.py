@@ -1,4 +1,5 @@
 """Main tracker module - the interface LLMs and users interact with."""
+import os
 import re
 from datetime import datetime, date
 from typing import Optional
@@ -18,9 +19,33 @@ class MacroTracker:
         provider=None,
         store=None,
         timezone: str = None,
+        test_mode: bool = None,
     ):
+        """Initialize the tracker.
+        
+        Args:
+            provider: Nutrition data provider (default: USDA)
+            store: Storage backend (default: JsonStore)
+            timezone: User's timezone (default: America/Los_Angeles)
+            test_mode: If True, uses a separate test database. 
+                      Can also be set via MACRO_TRACKER_TEST_MODE=1 env var.
+        """
+        # Check for test mode
+        if test_mode is None:
+            test_mode = os.environ.get('MACRO_TRACKER_TEST_MODE', '').lower() in ('1', 'true', 'yes')
+        
+        self.test_mode = test_mode
         self.provider = provider or default_provider
-        self.store = store or default_store
+        
+        if test_mode and store is None:
+            # Use separate test data directory
+            from pathlib import Path
+            test_data_dir = Path(__file__).parent.parent / "data_test"
+            self.store = JsonStore(data_dir=str(test_data_dir))
+            print(f"⚠️  TEST MODE: Using {test_data_dir}")
+        else:
+            self.store = store or default_store
+            
         self.timezone = timezone or self.DEFAULT_TIMEZONE
 
     # ─────────────────────────────────────────────────────────────
