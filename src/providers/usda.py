@@ -1,11 +1,33 @@
 """USDA FoodData Central nutrition provider."""
 import os
+from pathlib import Path
 from typing import Optional
 from urllib.request import urlopen, Request
 from urllib.parse import urlencode, quote
 import json
 
 from .base import NutritionProvider, NutritionInfo
+
+
+def _load_dotenv():
+    """Load .env file from project root if it exists."""
+    # Walk up from this file to find .env
+    current = Path(__file__).resolve().parent
+    for _ in range(5):  # max 5 levels up
+        env_file = current / ".env"
+        if env_file.exists():
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, _, value = line.partition("=")
+                        os.environ.setdefault(key.strip(), value.strip())
+            break
+        current = current.parent
+
+
+# Load .env on module import
+_load_dotenv()
 
 
 class USDAProvider(NutritionProvider):
