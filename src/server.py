@@ -3,13 +3,17 @@
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.tracker import tracker
+
+# Default timezone for the dashboard
+DEFAULT_TIMEZONE = "America/Los_Angeles"
 
 
 import base64
@@ -76,50 +80,56 @@ class MacroTrackerHandler(BaseHTTPRequestHandler):
             self._send_auth_required()
             return
 
-        # Parse date param
+        # Parse timezone param
+        timezone = params.get('tz', [DEFAULT_TIMEZONE])[0]
+        tz = ZoneInfo(timezone)
+        
+        # Parse date param (in user's local timezone)
         date_str = params.get('date', [None])[0]
         if date_str:
             try:
                 day = date.fromisoformat(date_str)
             except ValueError:
-                day = date.today()
+                day = datetime.now(tz).date()
         else:
-            day = date.today()
+            day = datetime.now(tz).date()
 
         # API routes
         if path.startswith('/api/'):
-            self._handle_api(path, params, day)
+            self._handle_api(path, params, day, timezone)
             return
 
         # Dashboard
         if path == '/' or path == '/index.html':
-            html = generate_dashboard_html(day)
+            html = generate_dashboard_html(day, timezone)
             self._send_html(html)
             return
 
         self._send_html('<h1>Not Found</h1>', 404)
 
-    def _handle_api(self, path, params, day):
+    def _handle_api(self, path, params, day, timezone):
         if path == '/api/summary':
-            self._send_json(tracker.get_daily_summary(day))
+            self._send_json(tracker.get_daily_summary(day, timezone))
         elif path == '/api/food':
-            self._send_json(tracker.get_food_log(day))
+            self._send_json(tracker.get_food_log(day, timezone))
         elif path == '/api/water':
-            self._send_json(tracker.get_water_status(day))
+            self._send_json(tracker.get_water_status(day, timezone))
         elif path == '/api/goals':
             self._send_json(tracker.get_goals())
         elif path == '/api/week':
+            tz = ZoneInfo(timezone)
+            today = datetime.now(tz).date()
             days = []
             for i in range(6, -1, -1):
-                d = date.today() - timedelta(days=i)
-                summary = tracker.get_daily_summary(d)
+                d = today - timedelta(days=i)
+                summary = tracker.get_daily_summary(d, timezone)
                 days.append({
                     'date': d.isoformat(),
                     'calories': summary['food']['calories'],
                     'protein': summary['food']['protein_g'],
                     'water_ml': summary['water']['total_ml'],
                 })
-            self._send_json({'days': days, 'goals': tracker.get_goals()})
+            self._send_json({'days': days, 'goals': tracker.get_goals(), 'timezone': timezone})
         else:
             self._send_json({'error': 'Not found'}, 404)
 
@@ -127,11 +137,14 @@ class MacroTrackerHandler(BaseHTTPRequestHandler):
         pass
 
 
-def generate_dashboard_html(day: date) -> str:
+def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
     """Generate dashboard HTML for a specific day."""
-    today = date.today()
-    summary = tracker.get_daily_summary(day)
-    food_log = tracker.get_food_log(day)
+    tz = ZoneInfo(timezone)
+    today = datetime.now(tz).date()
+    tz_short = datetime.now(tz).strftime('%Z')
+    
+    summary = tracker.get_daily_summary(day, timezone)
+    food_log = tracker.get_food_log(day, timezone)
     
     prev_day = (day - timedelta(days=1)).isoformat()
     next_day = (day + timedelta(days=1)).isoformat()
@@ -140,7 +153,7 @@ def generate_dashboard_html(day: date) -> str:
     week_data = []
     for i in range(6, -1, -1):
         d = day - timedelta(days=i)
-        s = tracker.get_daily_summary(d)
+        s = tracker.get_daily_summary(d, timezone)
         week_data.append({
             'date': d.isoformat(),
             'calories': s['food']['calories'],
