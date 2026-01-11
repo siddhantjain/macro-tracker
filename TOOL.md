@@ -233,7 +233,40 @@ For daily summary:
 
 ## Error Handling
 
-- **Food not found:** Ask user for manual nutrition values or suggest similar foods
+### Nutrition Not Found
+
+When `log_food()` can't find nutrition data, it returns:
+```python
+{
+    "logged": False,
+    "error": "nutrition_not_found",
+    "message": "Could not find nutrition info for 'masala chai'. Please provide calories/protein/carbs/fat manually, or search using another source.",
+    "name": "masala chai",
+    "quantity": 0.5,
+    "unit": "cup"
+}
+```
+
+**Recommended flow for LLM agents:**
+
+1. Call `tracker.log_food("food name")` 
+2. If `logged: False` and `error: "nutrition_not_found"`:
+   - Use your own search capability (e.g., web search, Serper, Google) to find nutrition info
+   - Search for: `"{food name} nutrition calories protein per serving"`
+   - Extract approximate values from search results
+   - Re-call with explicit values: `tracker.log_food("food name", calories=X, protein_g=Y, carbs_g=Z, fat_g=W)`
+3. Confirm to user what was logged
+
+**Alternative flow (search first):**
+
+1. Call `tracker.search_food("food name")` first
+2. If results are empty or poor quality, use external search
+3. Then call `tracker.log_food()` with explicit values
+
+This keeps the tracker focused on storage/USDA lookup, while the LLM orchestrates fallback searches.
+
+### Other Errors
+
 - **Invalid quantity:** Default to 1 serving
 - **Past dates:** Support "log [food] for yesterday" by passing date parameter
 

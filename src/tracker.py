@@ -73,13 +73,15 @@ class MacroTracker:
                 source = info.source
                 fdc_id = info.fdc_id
             else:
-                # Default to zeros if not found
-                calories = calories or 0
-                protein_g = protein_g or 0
-                carbs_g = carbs_g or 0
-                fat_g = fat_g or 0
-                source = "manual"
-                fdc_id = None
+                # Don't silently zero - return error so caller can handle
+                return {
+                    "logged": False,
+                    "error": "nutrition_not_found",
+                    "message": f"Could not find nutrition info for '{name}'. Please provide calories/protein/carbs/fat manually, or search using another source.",
+                    "name": name,
+                    "quantity": quantity,
+                    "unit": unit,
+                }
         else:
             source = "manual"
             fdc_id = None
