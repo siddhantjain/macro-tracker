@@ -42,13 +42,20 @@ class USDAProvider(NutritionProvider):
     def name(self) -> str:
         return "USDA FoodData Central"
 
-    def _request(self, endpoint: str, params: dict = None) -> dict:
+    def _request(self, endpoint: str, params: dict = None, method: str = "GET", body: dict = None) -> dict:
         """Make a request to the USDA API."""
         params = params or {}
         params["api_key"] = self.api_key
         url = f"{self.BASE_URL}/{endpoint}?{urlencode(params)}"
         
-        req = Request(url, headers={"User-Agent": "MacroTracker/1.0"})
+        headers = {"User-Agent": "MacroTracker/1.0"}
+        data = None
+        
+        if method == "POST" and body:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(body).encode("utf-8")
+        
+        req = Request(url, headers=headers, data=data, method=method)
         with urlopen(req, timeout=10) as response:
             return json.loads(response.read().decode())
 
@@ -82,12 +89,20 @@ class USDAProvider(NutritionProvider):
         )
 
     def search(self, query: str, limit: int = 5) -> list[NutritionInfo]:
-        """Search for foods matching the query."""
+        """Search for foods matching the query.
+        
+        Uses requireAllWords=true to avoid fuzzy matches on common words.
+        """
         try:
-            data = self._request("foods/search", {
-                "query": query,
-                "pageSize": limit,
-            })
+            data = self._request(
+                "foods/search",
+                method="POST",
+                body={
+                    "query": query,
+                    "pageSize": limit,
+                    "requireAllWords": True,
+                },
+            )
             foods = data.get("foods", [])
             return [self._parse_food(f) for f in foods[:limit]]
         except Exception as e:

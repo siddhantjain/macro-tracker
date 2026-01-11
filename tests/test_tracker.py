@@ -81,11 +81,12 @@ class TestFoodTracking:
         assert result["source"] == "manual"
 
     def test_log_food_not_found(self, tracker):
-        """Food not in database should use zeros."""
+        """Food not in database should return error."""
         result = tracker.log_food("notfound item")
         
-        assert result["calories"] == 0
-        assert result["protein_g"] == 0
+        assert result["logged"] == False
+        assert result["error"] == "nutrition_not_found"
+        assert "notfound item" in result["message"]
 
     def test_search_food_returns_results(self, tracker):
         """Search should return nutrition info."""
