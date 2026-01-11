@@ -145,6 +145,18 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
     
     summary = tracker.get_daily_summary(day, timezone)
     food_log = tracker.get_food_log(day, timezone)
+    water_log = tracker.store.get_water_log(day, timezone)
+    
+    # Convert water timestamps to local time for display
+    for entry in water_log:
+        try:
+            ts = datetime.fromisoformat(entry['timestamp'].replace('Z', '+00:00'))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=ZoneInfo('UTC'))
+            local_ts = ts.astimezone(tz)
+            entry['local_time'] = local_ts.strftime('%I:%M %p')
+        except:
+            entry['local_time'] = 'Unknown'
     
     prev_day = (day - timedelta(days=1)).isoformat()
     next_day = (day + timedelta(days=1)).isoformat()
@@ -265,6 +277,72 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
         .food-item .name {{ flex: 1; }}
         .food-item .macros {{ color: #888; font-size: 0.9em; }}
         .empty {{ text-align: center; color: #666; padding: 20px; }}
+        
+        /* Clickable cards */
+        .stat-card {{ cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }}
+        .stat-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }}
+        
+        /* Modal styles */
+        .modal-overlay {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }}
+        .modal-overlay.active {{ display: flex; }}
+        .modal {{
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 25px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+            position: relative;
+        }}
+        .modal h3 {{
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.3em;
+        }}
+        .modal-close {{
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.5em;
+            cursor: pointer;
+        }}
+        .modal-close:hover {{ color: #fff; }}
+        .modal-item {{
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }}
+        .modal-item:last-child {{ border-bottom: none; }}
+        .modal-item .name {{ flex: 1; }}
+        .modal-item .value {{ font-weight: bold; color: #4ecca3; }}
+        .modal-item .time {{ color: #888; font-size: 0.9em; }}
+        .modal-total {{
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid rgba(255,255,255,0.2);
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+        }}
     </style>
 </head>
 <body>
@@ -279,33 +357,70 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card calories">
+            <div class="stat-card calories" onclick="showModal('calories')">
                 <div class="icon">🔥</div>
                 <div class="value">{int(summary['food']['calories'])}</div>
                 <div class="label">Calories</div>
                 <div class="goal">/ {summary['goals']['calories']}</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: {min(summary['progress']['calories_pct'], 100)}%"></div></div>
             </div>
-            <div class="stat-card protein">
+            <div class="stat-card protein" onclick="showModal('protein')">
                 <div class="icon">💪</div>
                 <div class="value">{int(summary['food']['protein_g'])}</div>
                 <div class="label">Protein (g)</div>
                 <div class="goal">/ {summary['goals']['protein_g']}g</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: {min(summary['progress']['protein_pct'], 100)}%"></div></div>
             </div>
-            <div class="stat-card water">
+            <div class="stat-card water" onclick="showModal('water')">
                 <div class="icon">💧</div>
                 <div class="value">{summary['water']['total_liters']:.1f}</div>
                 <div class="label">Water (L)</div>
                 <div class="goal">/ {summary['goals']['water_ml']/1000:.1f}L</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: {min(summary['progress']['water_pct'], 100)}%"></div></div>
             </div>
-            <div class="stat-card carbs">
+            <div class="stat-card carbs" onclick="showModal('carbs')">
                 <div class="icon">🍞</div>
                 <div class="value">{int(summary['food']['carbs_g'])}</div>
                 <div class="label">Carbs (g)</div>
                 <div class="goal">&nbsp;</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: 0%"></div></div>
+            </div>
+        </div>
+        
+        <!-- Modals -->
+        <div class="modal-overlay" id="modal-calories" onclick="closeModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <h3>🔥 Calories Breakdown</h3>
+                {''.join(f'<div class="modal-item"><span class="name">{f["name"]}</span><span class="value">{int(f["calories"])} cal</span></div>' for f in food_log) if food_log else '<div class="empty">No food logged</div>'}
+                <div class="modal-total"><span>Total</span><span>{int(summary['food']['calories'])} cal</span></div>
+            </div>
+        </div>
+        
+        <div class="modal-overlay" id="modal-protein" onclick="closeModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <h3>💪 Protein Breakdown</h3>
+                {''.join(f'<div class="modal-item"><span class="name">{f["name"]}</span><span class="value">{f["protein_g"]:.1f}g</span></div>' for f in sorted(food_log, key=lambda x: x["protein_g"], reverse=True)) if food_log else '<div class="empty">No food logged</div>'}
+                <div class="modal-total"><span>Total</span><span>{summary['food']['protein_g']:.1f}g</span></div>
+            </div>
+        </div>
+        
+        <div class="modal-overlay" id="modal-water" onclick="closeModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <h3>💧 Water Log</h3>
+                {''.join('<div class="modal-item"><span class="time">' + w["local_time"] + '</span><span class="value">' + str(int(w["amount_ml"])) + 'ml</span></div>' for w in water_log) if water_log else '<div class="empty">No water logged</div>'}
+                <div class="modal-total"><span>Total</span><span>{summary['water']['total_ml']:.0f}ml ({summary['water']['total_liters']:.2f}L)</span></div>
+            </div>
+        </div>
+        
+        <div class="modal-overlay" id="modal-carbs" onclick="closeModal(event)">
+            <div class="modal" onclick="event.stopPropagation()">
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <h3>🍞 Carbs Breakdown</h3>
+                {''.join(f'<div class="modal-item"><span class="name">{f["name"]}</span><span class="value">{f["carbs_g"]:.1f}g</span></div>' for f in sorted(food_log, key=lambda x: x["carbs_g"], reverse=True)) if food_log else '<div class="empty">No food logged</div>'}
+                <div class="modal-total"><span>Total</span><span>{summary['food']['carbs_g']:.1f}g</span></div>
             </div>
         </div>
 
@@ -343,6 +458,19 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
                     y1: {{ position: 'right', ticks: {{ color: '#4ecca3' }}, grid: {{ drawOnChartArea: false }} }}
                 }}
             }}
+        }});
+    </script>
+    <script>
+        function showModal(type) {{
+            document.getElementById('modal-' + type).classList.add('active');
+        }}
+        function closeModal(event) {{
+            if (!event || event.target.classList.contains('modal-overlay') || event.target.classList.contains('modal-close')) {{
+                document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+            }}
+        }}
+        document.addEventListener('keydown', (e) => {{
+            if (e.key === 'Escape') closeModal();
         }});
     </script>
 </body>
