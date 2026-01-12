@@ -17,7 +17,7 @@ class MockProvider:
     def name(self):
         return "Mock Provider"
     
-    def search(self, query, limit=5):
+    def search(self, query, limit=5, data_types=None):
         """Return mock nutrition data."""
         if "notfound" in query.lower():
             return []
@@ -30,8 +30,65 @@ class MockProvider:
                 carbs_g=15,
                 fat_g=5,
                 source="mock",
+                portions=[
+                    {"description": "1 cup", "gram_weight": 200},
+                    {"description": "1 serving", "gram_weight": 100},
+                ]
             )
         ]
+    
+    def search_with_portions(self, query, unit, quantity=1, limit=3):
+        """Mock portion search."""
+        if "notfound" in query.lower():
+            return {
+                "success": False,
+                "error": "FOOD_NOT_FOUND",
+                "message": f"Could not find '{query}' in mock database.",
+            }
+        
+        # Mock portion matching
+        unit_lower = unit.lower()
+        if unit_lower in ("cup", "cups"):
+            gram_weight = 200 * quantity
+        elif unit_lower in ("serving", "servings"):
+            gram_weight = 100 * quantity
+        elif unit_lower in ("g", "gram", "grams"):
+            gram_weight = quantity
+        else:
+            return {
+                "success": False,
+                "error": "PORTION_NOT_FOUND",
+                "message": f"Could not convert '{unit}' for '{query}'.",
+                "available_portions": [
+                    {"description": "1 cup", "gram_weight": 200},
+                    {"description": "1 serving", "gram_weight": 100},
+                ],
+                "suggestion": "Use one of the available portions or specify in grams.",
+            }
+        
+        scale = gram_weight / 100
+        return {
+            "success": True,
+            "food": NutritionInfo(
+                name=query.title(),
+                serving_size="100g",
+                calories=150,
+                protein_g=10,
+                carbs_g=15,
+                fat_g=5,
+                source="mock",
+            ),
+            "portion_match": {"description": f"1 {unit}", "gram_weight": gram_weight / quantity},
+            "gram_weight": gram_weight,
+            "nutrition": {
+                "calories": 150 * scale,
+                "protein_g": 10 * scale,
+                "carbs_g": 15 * scale,
+                "fat_g": 5 * scale,
+                "fiber_g": 0,
+            },
+            "conversion": f"{quantity} {unit} = {gram_weight}g",
+        }
     
     def get_by_id(self, food_id):
         return None
@@ -52,16 +109,16 @@ class TestFoodTracking:
     """Tests for food logging."""
 
     def test_log_food_with_auto_lookup(self, tracker):
-        """Logging food should auto-lookup nutrition."""
-        result = tracker.log_food("chicken breast", quantity=1)
+        """Logging food should auto-lookup nutrition (default unit is grams)."""
+        result = tracker.log_food("chicken breast", quantity=100, unit="g")
         
         assert result["name"] == "chicken breast"
-        assert result["calories"] == 150
+        assert result["calories"] == 150  # 150 cal per 100g
         assert result["protein_g"] == 10
 
     def test_log_food_with_quantity(self, tracker):
-        """Quantity should multiply nutrition values."""
-        result = tracker.log_food("eggs", quantity=2)
+        """Quantity in grams should scale nutrition values."""
+        result = tracker.log_food("eggs", quantity=200, unit="g")  # 200g = 2x100g
         
         assert result["calories"] == 300  # 150 * 2
         assert result["protein_g"] == 20  # 10 * 2
@@ -82,20 +139,20 @@ class TestFoodTracking:
 
     def test_log_food_not_found(self, tracker):
         """Food not in database should return error."""
-        result = tracker.log_food("notfound item")
+        result = tracker.log_food("notfound item", quantity=100, unit="g")
         
         assert result["logged"] == False
-        assert result["error"] == "nutrition_not_found"
+        assert result["error"] == "FOOD_NOT_FOUND"
         assert "notfound item" in result["message"]
 
     def test_log_food_not_found_preserves_input(self, tracker):
         """Error response should include original input for retry."""
-        result = tracker.log_food("notfound xyz", quantity=2.5, unit="cup")
+        result = tracker.log_food("notfound xyz", quantity=100, unit="g")
         
         assert result["logged"] == False
         assert result["name"] == "notfound xyz"
-        assert result["quantity"] == 2.5
-        assert result["unit"] == "cup"
+        assert result["quantity"] == 100
+        assert result["unit"] == "g"
 
     def test_log_food_not_found_can_retry_with_manual(self, tracker):
         """After not found error, can retry with manual values."""

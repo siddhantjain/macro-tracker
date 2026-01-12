@@ -6,7 +6,11 @@ from typing import Optional
 
 @dataclass
 class NutritionInfo:
-    """Nutrition information for a food item."""
+    """Nutrition information for a food item.
+    
+    Nutrition values are per 100g by default (USDA standard).
+    Use portions to convert to other units.
+    """
     name: str
     serving_size: str
     calories: float
@@ -18,6 +22,7 @@ class NutritionInfo:
     sodium_mg: Optional[float] = None
     source: str = "unknown"
     fdc_id: Optional[int] = None  # USDA FoodData Central ID
+    portions: Optional[list] = None  # Available portion conversions
 
     def to_dict(self) -> dict:
         return {
@@ -32,6 +37,7 @@ class NutritionInfo:
             "sodium_mg": self.sodium_mg,
             "source": self.source,
             "fdc_id": self.fdc_id,
+            "portions": self.portions,
         }
 
 

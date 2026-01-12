@@ -149,6 +149,34 @@ class JsonStore:
         self._save("food", entries)
         return entry_dict
 
+    def delete_food_entry(self, timestamp: str) -> dict:
+        """Delete a food entry by its timestamp.
+        
+        Args:
+            timestamp: ISO timestamp of the entry to delete
+            
+        Returns:
+            {"deleted": True, "entry": {...}} or {"deleted": False, "reason": "not_found"}
+        """
+        # Parse timestamp to find which file it's in
+        try:
+            dt = datetime.fromisoformat(timestamp)
+            entry_date = dt.date()
+        except ValueError:
+            return {"deleted": False, "reason": "invalid_timestamp"}
+        
+        # Load entries for that date
+        entries = self._load("food", entry_date)
+        
+        # Find and remove the entry
+        for i, entry in enumerate(entries):
+            if entry.get("timestamp") == timestamp:
+                removed = entries.pop(i)
+                self._save("food", entries, entry_date)
+                return {"deleted": True, "entry": removed}
+        
+        return {"deleted": False, "reason": "not_found", "timestamp": timestamp}
+
     def get_food_log(self, day: date = None, timezone: str = None) -> list[dict]:
         """Get food log for a day.
         

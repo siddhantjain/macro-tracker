@@ -50,6 +50,7 @@ def generate_dashboard(timezone: str = None):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Macro Tracker</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
@@ -177,6 +178,7 @@ def generate_dashboard(timezone: str = None):
 
     <script>
         const weekData = {json.dumps(week_data)};
+        const goals = {{ calories: {summary['goals']['calories']}, protein: {summary['goals']['protein_g']} }};
         const ctx = document.getElementById('trendChart').getContext('2d');
         new Chart(ctx, {{
             type: 'line',
@@ -203,7 +205,47 @@ def generate_dashboard(timezone: str = None):
             }},
             options: {{
                 responsive: true,
-                plugins: {{ legend: {{ labels: {{ color: '#888' }} }} }},
+                plugins: {{
+                    legend: {{ labels: {{ color: '#888' }} }},
+                    annotation: {{
+                        annotations: {{
+                            calorieGoal: {{
+                                type: 'line',
+                                yMin: goals.calories,
+                                yMax: goals.calories,
+                                yScaleID: 'y',
+                                borderColor: 'rgba(233, 69, 96, 0.5)',
+                                borderWidth: 2,
+                                borderDash: [6, 6],
+                                label: {{
+                                    display: true,
+                                    content: 'Cal Goal',
+                                    position: 'start',
+                                    backgroundColor: 'rgba(233, 69, 96, 0.8)',
+                                    color: '#fff',
+                                    font: {{ size: 10 }}
+                                }}
+                            }},
+                            proteinGoal: {{
+                                type: 'line',
+                                yMin: goals.protein,
+                                yMax: goals.protein,
+                                yScaleID: 'y1',
+                                borderColor: 'rgba(78, 204, 163, 0.5)',
+                                borderWidth: 2,
+                                borderDash: [6, 6],
+                                label: {{
+                                    display: true,
+                                    content: 'Protein Goal',
+                                    position: 'end',
+                                    backgroundColor: 'rgba(78, 204, 163, 0.8)',
+                                    color: '#fff',
+                                    font: {{ size: 10 }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }},
                 scales: {{
                     x: {{ ticks: {{ color: '#666' }}, grid: {{ color: 'rgba(255,255,255,0.05)' }} }},
                     y: {{ type: 'linear', position: 'left', ticks: {{ color: '#e94560' }}, grid: {{ color: 'rgba(255,255,255,0.05)' }} }},

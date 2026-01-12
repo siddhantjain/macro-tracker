@@ -187,6 +187,7 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Macro Tracker - {day.isoformat()}</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; }}
         body {{
@@ -511,7 +512,20 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
                 responsive: true,
                 plugins: {{ 
                     legend: {{ display: false }},
-                    title: {{ display: true, text: '💧 Water (goal: ' + (waterGoal/1000).toFixed(1) + 'L)', color: '#888' }}
+                    title: {{ display: true, text: '💧 Water (goal: ' + (waterGoal/1000).toFixed(1) + 'L)', color: '#888' }},
+                    annotation: {{
+                        annotations: {{
+                            goalLine: {{
+                                type: 'line',
+                                yMin: waterGoal,
+                                yMax: waterGoal,
+                                borderColor: '#fff',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                label: {{ display: true, content: 'Goal', position: 'end', color: '#fff' }}
+                            }}
+                        }}
+                    }}
                 }},
                 scales: {{
                     x: {{ ticks: {{ color: '#666' }}, grid: {{ display: false }} }},
