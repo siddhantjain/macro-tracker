@@ -216,7 +216,7 @@ class MacroTracker:
                 "message": "Dry run - nothing saved. Remove dry_run=True to log."
             }
         
-        result = self.store.log_food(entry)
+        result = self.store.log_food(entry, timezone=self.timezone)
         result["logged"] = True
         if 'gram_weight' in dir() and gram_weight:
             result["gram_weight"] = gram_weight
@@ -468,7 +468,7 @@ class MacroTracker:
         else:  # ml
             amount_ml = amount
 
-        return self.store.log_water(amount_ml)
+        return self.store.log_water(amount_ml, timezone=self.timezone)
 
     def get_water_status(self, day: date = None, timezone: str = None) -> dict:
         """Get water intake status for a day.

@@ -141,12 +141,24 @@ class JsonStore:
             json.dump(entries, f, indent=2)
 
     # Food methods
-    def log_food(self, entry: FoodEntry) -> dict:
-        """Log a food entry."""
-        entries = self._load("food")
+    def log_food(self, entry: FoodEntry, timezone: str = None) -> dict:
+        """Log a food entry.
+        
+        Args:
+            entry: The food entry to log
+            timezone: Timezone for determining which date file to use.
+                      Defaults to store's default_timezone.
+        """
+        timezone = timezone or self.default_timezone
+        tz = ZoneInfo(timezone)
+        
+        # Use local date for file
+        local_date = datetime.now(tz).date()
+        
+        entries = self._load("food", local_date)
         entry_dict = asdict(entry)
         entries.append(entry_dict)
-        self._save("food", entries)
+        self._save("food", entries, local_date)
         return entry_dict
 
     def delete_food_entry(self, timestamp: str) -> dict:
@@ -211,16 +223,29 @@ class JsonStore:
         return totals
 
     # Water methods
-    def log_water(self, amount_ml: float) -> dict:
-        """Log water intake."""
-        entries = self._load("water")
+    def log_water(self, amount_ml: float, timezone: str = None) -> dict:
+        """Log water intake.
+        
+        Args:
+            amount_ml: Amount of water in milliliters
+            timezone: Timezone for determining which date file to use.
+                      Defaults to store's default_timezone.
+        """
+        timezone = timezone or self.default_timezone
+        tz = ZoneInfo(timezone)
+        
+        # Use local date for file, but UTC timestamp in entry
+        local_now = datetime.now(tz)
+        local_date = local_now.date()
+        
+        entries = self._load("water", local_date)
         entry = WaterEntry(
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(ZoneInfo("UTC")).isoformat(),
             amount_ml=amount_ml,
         )
         entry_dict = asdict(entry)
         entries.append(entry_dict)
-        self._save("water", entries)
+        self._save("water", entries, local_date)
         return entry_dict
 
     def get_water_log(self, day: date = None, timezone: str = None) -> list[dict]:
@@ -279,4 +304,5 @@ class JsonStore:
 
 
 # Default store instance
-default_store = JsonStore()
+# Default store with PT timezone (matching the default user timezone)
+default_store = JsonStore(default_timezone="America/Los_Angeles")
