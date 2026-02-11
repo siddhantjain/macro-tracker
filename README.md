@@ -76,6 +76,102 @@ See **[TOOL.md](TOOL.md)** for the complete LLM integration reference.
 | "How much protein today?" | `tracker.get_daily_summary()["food"]["protein_g"]` |
 | "Set my protein goal to 180g" | `tracker.set_goal("protein_g", 180)` |
 
+## 📸 Photo-Based Food Logging
+
+**NEW: Analyze food photos using OpenClaw vision!**
+
+Upload a photo of your meal, and the API will:
+1. Identify all food items in the photo
+2. Estimate quantities
+3. Look up nutrition data (calories, protein, carbs, fat)
+4. Return structured JSON response
+
+### API Endpoint
+
+```
+POST /api/food/analyze
+Content-Type: multipart/form-data
+
+Form field: "image" (image file)
+```
+
+### Response Format
+
+```json
+{
+  "items": [
+    {
+      "name": "scrambled eggs",
+      "quantity": 2,
+      "unit": "eggs",
+      "quantity_g": 100,
+      "calories": 140,
+      "protein_g": 12,
+      "carbs_g": 2,
+      "fat_g": 10,
+      "source": "usda",
+      "confidence": "high"
+    },
+    {
+      "name": "toast",
+      "quantity": 2,
+      "unit": "slices",
+      "quantity_g": 60,
+      "calories": 160,
+      "protein_g": 6,
+      "carbs_g": 28,
+      "fat_g": 2,
+      "source": "usda",
+      "confidence": "high"
+    }
+  ],
+  "total": {
+    "calories": 300,
+    "protein_g": 18,
+    "carbs_g": 30,
+    "fat_g": 12
+  }
+}
+```
+
+### Example Usage (iOS Swift)
+
+```swift
+func analyzeFoodPhoto(image: UIImage) async throws -> FoodAnalysis {
+    guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+        throw FoodLoggingError.invalidImage
+    }
+    
+    let url = URL(string: "http://mac-mini:4001/api/food/analyze")!
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    
+    let boundary = UUID().uuidString
+    request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+    
+    var body = Data()
+    body.append("--\(boundary)\r\n".data(using: .utf8)!)
+    body.append("Content-Disposition: form-data; name=\"image\"; filename=\"photo.jpg\"\r\n".data(using: .utf8)!)
+    body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+    body.append(imageData)
+    body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+    
+    request.httpBody = body
+    
+    let (data, _) = try await URLSession.shared.data(for: request)
+    return try JSONDecoder().decode(FoodAnalysis.self, from: data)
+}
+```
+
+### Vision Queue Setup
+
+The vision analysis uses OpenClaw's image tool. Neo monitors the vision queue automatically.
+
+To manually process vision requests:
+```bash
+python scripts/process_vision_queue.py --once
+```
+
 ## 📖 Documentation
 
 - [Tool Reference (TOOL.md)](TOOL.md) — LLM integration guide

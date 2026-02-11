@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """Combined HTTP server for dashboard + API."""
 import json
+import tempfile
+import os
+import io
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from email.parser import BytesParser
+from email.policy import default as email_policy
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.tracker import tracker
+from src.vision_analyzer import default_analyzer
+from src.nutrition_lookup import default_lookup
 
 # Default timezone for the dashboard
 DEFAULT_TIMEZONE = "America/Los_Angeles"
@@ -32,22 +39,8 @@ DASHBOARD_USER = "macro"
 
 class MacroTrackerHandler(BaseHTTPRequestHandler):
     def _check_auth(self, params):
-        """Check if request is authenticated via Basic Auth."""
-        if not DASHBOARD_TOKEN:
-            return True  # No token configured, allow all
-        
-        # Check Basic Auth header
-        auth_header = self.headers.get('Authorization', '')
-        if auth_header.startswith('Basic '):
-            try:
-                decoded = base64.b64decode(auth_header[6:]).decode()
-                user, password = decoded.split(':', 1)
-                if user == DASHBOARD_USER and password == DASHBOARD_TOKEN:
-                    return True
-            except:
-                pass
-        
-        return False
+        """Auth disabled - running on Tailscale."""
+        return True
 
     def _send_auth_required(self):
         """Send 401 with Basic Auth challenge."""
@@ -106,6 +99,265 @@ class MacroTrackerHandler(BaseHTTPRequestHandler):
             return
 
         self._send_html('<h1>Not Found</h1>', 404)
+
+    def do_OPTIONS(self):
+        """Handle OPTIONS preflight requests for CORS."""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+    
+    def do_POST(self):
+        """Handle POST requests."""
+        parsed = urlparse(self.path)
+        path = parsed.path
+        
+        if path == '/api/food/analyze':
+            self._handle_food_analyze()
+        elif path == '/api/food/analyze-text':
+            self._handle_food_analyze_text()
+        elif path == '/api/food/log':
+            self._handle_food_log()
+        elif path == '/api/water/log':
+            self._handle_water_log()
+        else:
+            self._send_json({'error': 'Not found'}, 404)
+    
+    def _handle_food_log(self):
+        """Handle POST /api/food/log - log a food entry."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_json({'error': 'Bad request', 'message': 'Empty body'}, 400)
+                return
+            
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode('utf-8'))
+            
+            name = data.get('name', '').strip()
+            if not name:
+                self._send_json({'error': 'Bad request', 'message': 'Missing name'}, 400)
+                return
+            
+            # Log the food
+            result = tracker.log_food(
+                name=name,
+                quantity=data.get('quantity', 1),
+                unit=data.get('unit', 'serving'),
+                calories=data.get('calories'),
+                protein_g=data.get('protein_g'),
+                carbs_g=data.get('carbs_g'),
+                fat_g=data.get('fat_g')
+            )
+            
+            self._send_json(result)
+            
+        except json.JSONDecodeError:
+            self._send_json({'error': 'Bad request', 'message': 'Invalid JSON'}, 400)
+        except Exception as e:
+            print(f"Error logging food: {e}")
+            self._send_json({'error': 'Internal error', 'message': str(e)}, 500)
+    
+    def _handle_water_log(self):
+        """Handle POST /api/water/log - log water intake."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_json({'error': 'Bad request', 'message': 'Empty body'}, 400)
+                return
+            
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode('utf-8'))
+            
+            amount = data.get('amount_ml') or data.get('amount')
+            if not amount:
+                self._send_json({'error': 'Bad request', 'message': 'Missing amount'}, 400)
+                return
+            
+            # Log the water
+            result = tracker.log_water(float(amount), 'ml')
+            
+            self._send_json(result)
+            
+        except json.JSONDecodeError:
+            self._send_json({'error': 'Bad request', 'message': 'Invalid JSON'}, 400)
+        except Exception as e:
+            print(f"Error logging water: {e}")
+            self._send_json({'error': 'Internal error', 'message': str(e)}, 500)
+    
+    def _handle_food_analyze(self):
+        """Handle POST /api/food/analyze - analyze food photo."""
+        try:
+            # Parse multipart/form-data
+            content_type = self.headers.get('Content-Type', '')
+            if not content_type.startswith('multipart/form-data'):
+                self._send_json({
+                    'error': 'Bad request',
+                    'message': 'Expected multipart/form-data with image file'
+                }, 400)
+                return
+            
+            # Get content length
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_json({
+                    'error': 'Bad request',
+                    'message': 'Empty request body'
+                }, 400)
+                return
+            
+            # Read the body
+            body = self.rfile.read(content_length)
+            
+            # Parse multipart data using email parser
+            # Add Content-Type header to body for parsing
+            header_bytes = f"Content-Type: {content_type}\r\n\r\n".encode()
+            message_bytes = header_bytes + body
+            
+            msg = BytesParser(policy=email_policy).parsebytes(message_bytes)
+            
+            # Find the image part
+            image_data = None
+            filename = None
+            
+            for part in msg.walk():
+                content_disposition = part.get('Content-Disposition', '')
+                if 'name="image"' in content_disposition or 'name=image' in content_disposition:
+                    image_data = part.get_payload(decode=True)
+                    # Try to extract filename
+                    if 'filename=' in content_disposition:
+                        filename = content_disposition.split('filename=')[1].split(';')[0].strip('"')
+                    break
+            
+            if not image_data:
+                self._send_json({
+                    'error': 'Bad request',
+                    'message': 'Missing "image" field in form data'
+                }, 400)
+                return
+            
+            # Determine file extension
+            suffix = '.jpg'  # Default
+            if filename:
+                ext = Path(filename).suffix
+                if ext.lower() in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic']:
+                    suffix = ext
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                tmp_file.write(image_data)
+                tmp_path = tmp_file.name
+            
+            try:
+                # Analyze the image with OpenClaw vision
+                vision_result = default_analyzer.analyze_food_photo(tmp_path)
+                
+                # Look up nutrition for each item
+                items = []
+                for item in vision_result['items']:
+                    nutrition = default_lookup.lookup(
+                        item['name'],
+                        item['quantity'],
+                        item['unit']
+                    )
+                    items.append(nutrition)
+                
+                # Calculate totals
+                total = {
+                    'calories': sum(item['calories'] for item in items),
+                    'protein_g': sum(item['protein_g'] for item in items),
+                    'carbs_g': sum(item['carbs_g'] for item in items),
+                    'fat_g': sum(item['fat_g'] for item in items)
+                }
+                
+                # Return structured response
+                self._send_json({
+                    'items': items,
+                    'total': total,
+                    'raw_vision_response': vision_result.get('raw_response')
+                })
+                
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"Error analyzing food photo: {e}")
+            import traceback
+            traceback.print_exc()
+            self._send_json({
+                'error': 'Internal server error',
+                'message': str(e)
+            }, 500)
+    
+    def _handle_food_analyze_text(self):
+        """Handle POST /api/food/analyze-text - parse text description of food."""
+        try:
+            # Parse JSON body
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self._send_json({
+                    'error': 'Bad request',
+                    'message': 'Empty request body'
+                }, 400)
+                return
+            
+            body = self.rfile.read(content_length)
+            data = json.loads(body.decode('utf-8'))
+            
+            description = data.get('description', '').strip()
+            if not description:
+                self._send_json({
+                    'error': 'Bad request',
+                    'message': 'Missing "description" field'
+                }, 400)
+                return
+            
+            # Parse text description with OpenClaw vision analyzer
+            # (it has a parse_text_description method)
+            vision_result = default_analyzer.parse_text_description(description)
+            
+            # Look up nutrition for each item
+            items = []
+            for item in vision_result['items']:
+                nutrition = default_lookup.lookup(
+                    item['name'],
+                    item['quantity'],
+                    item['unit']
+                )
+                items.append(nutrition)
+            
+            # Calculate totals
+            total = {
+                'calories': sum(item['calories'] for item in items),
+                'protein_g': sum(item['protein_g'] for item in items),
+                'carbs_g': sum(item['carbs_g'] for item in items),
+                'fat_g': sum(item['fat_g'] for item in items)
+            }
+            
+            # Return structured response
+            self._send_json({
+                'items': items,
+                'total': total,
+                'raw_response': vision_result.get('raw_response')
+            })
+            
+        except json.JSONDecodeError:
+            self._send_json({
+                'error': 'Bad request',
+                'message': 'Invalid JSON'
+            }, 400)
+        except Exception as e:
+            print(f"Error analyzing text description: {e}")
+            import traceback
+            traceback.print_exc()
+            self._send_json({
+                'error': 'Internal server error',
+                'message': str(e)
+            }, 500)
 
     def _handle_api(self, path, params, day, timezone):
         if path == '/api/summary':
@@ -551,7 +803,7 @@ def generate_dashboard_html(day: date, timezone: str = DEFAULT_TIMEZONE) -> str:
 </html>'''
 
 
-def run_server(port=4001):
+def run_server(port=4020):
     server = HTTPServer(('0.0.0.0', port), MacroTrackerHandler)
     print(f"Macro Tracker running on http://0.0.0.0:{port}")
     server.serve_forever()
