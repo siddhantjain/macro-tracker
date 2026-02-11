@@ -47,25 +47,27 @@ class VisionAnalyzer:
             Exception: If vision analysis fails
         """
         # Prepare the prompt for food identification
-        prompt = """Identify all food items in this photo and estimate quantities.
+        prompt = """Identify all food items in this photo and estimate quantities. Return ONLY valid JSON (no other text):
+
+{{
+  "items": [
+    {{"name": "food name", "quantity": 150, "unit": "g"}},
+    {{"name": "another food", "quantity": 2, "unit": "pieces"}}
+  ]
+}}
 
 For EACH food item, provide:
-1. Food name (be specific - e.g., "scrambled eggs" not just "eggs")
-2. Estimated quantity as a number
-3. Unit (grams/g, ounces/oz, cups, tablespoons/tbsp, pieces/items, slices, etc.)
-
-Format your response as a numbered list:
-1. [Food name]: [quantity] [unit]
-2. [Food name]: [quantity] [unit]
+- name: Be specific (e.g., "scrambled eggs" not just "eggs")
+- quantity: Estimated numeric quantity
+- unit: grams/g, ounces/oz, cups, tablespoons/tbsp, pieces, slices, etc.
 
 Examples:
-- Scrambled eggs: 2 eggs (or 100g if you can estimate weight)
-- White rice: 150 g
-- Grilled chicken breast: 200 g
-- Toast: 2 slices
-- Milk: 1 cup
+- Scrambled eggs → {{"name": "scrambled eggs", "quantity": 2, "unit": "eggs"}}
+- White rice → {{"name": "white rice", "quantity": 150, "unit": "g"}}
+- Grilled chicken breast → {{"name": "grilled chicken breast", "quantity": 200, "unit": "g"}}
+- Toast → {{"name": "whole wheat toast", "quantity": 2, "unit": "slices"}}
 
-Be as specific and accurate as possible with quantities. If you're unsure, provide your best estimate."""
+Be as specific and accurate as possible with quantities. Return ONLY the JSON, nothing else."""
 
         try:
             # Use callback if provided (for testing)
@@ -235,79 +237,51 @@ Be as specific and accurate as possible with quantities. If you're unsure, provi
         """Parse the vision model's response into structured food items.
         
         Args:
-            text: Raw text response from vision model
+            text: Raw text response from vision model (expected to be JSON)
             
         Returns:
             List of food items with name, quantity, and unit
         """
+        # Extract JSON from response (in case AI adds extra text)
+        text = text.strip()
+        
+        # Try to find JSON object in the response
+        json_start = text.find('{')
+        json_end = text.rfind('}') + 1
+        
+        if json_start == -1 or json_end == 0:
+            raise Exception(f"No JSON found in response: {text[:100]}")
+        
+        json_text = text[json_start:json_end]
+        
+        try:
+            data = json.loads(json_text)
+        except json.JSONDecodeError as e:
+            raise Exception(f"Invalid JSON in response: {e}\nText: {json_text[:200]}")
+        
+        if 'items' not in data:
+            raise Exception(f"Response missing 'items' key: {data}")
+        
         items = []
-        
-        # Try to parse numbered list format: "1. Food name: quantity unit"
-        # Pattern: optional number/bullet, food name, colon, quantity, unit
-        lines = text.strip().split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+        for item in data['items']:
+            # Validate required fields
+            if not all(key in item for key in ['name', 'quantity', 'unit']):
+                continue  # Skip malformed items
             
-            # Remove leading numbering/bullets: "1.", "1)", "-", "*", "•"
-            line = re.sub(r'^[\d\.\)•\-\*]+\s*', '', line)
+            name = item['name'].strip()
+            quantity = float(item['quantity'])
+            unit = self._normalize_unit(item['unit'])
             
-            # Try to match: "Food name: quantity unit" or "Food name - quantity unit"
-            match = re.match(r'^([^:\-]+)[\:\-]\s*(\d+(?:\.\d+)?)\s*([a-zA-Z]+)', line, re.IGNORECASE)
+            # Validation: Reject suspiciously small quantities
+            if unit == 'g' and quantity < 5:
+                continue  # Less than 5g is suspicious
             
-            if match:
-                name = match.group(1).strip()
-                quantity = float(match.group(2))
-                unit = match.group(3).lower()
-                
-                # Check if the food name incorrectly includes a number (e.g., "5 roti")
-                # This indicates the AI put the quantity in the wrong place
-                name_with_num = re.match(r'^(\d+)\s+(.+)$', name)
-                if name_with_num:
-                    # Extract the actual quantity from the name
-                    actual_quantity = float(name_with_num.group(1))
-                    actual_name = name_with_num.group(2).strip()
-                    
-                    # Use the quantity from the name, not from after the colon
-                    name = actual_name
-                    quantity = actual_quantity
-                    
-                    # If unit is 'g' and quantity is 1, it's likely wrong - use 'pieces' instead
-                    if unit == 'g' and quantity > 1:
-                        unit = 'pieces'
-                
-                # Normalize units
-                unit = self._normalize_unit(unit)
-                
-                # Validation: Reject suspiciously small quantities
-                if unit == 'g' and quantity < 5:
-                    # Less than 5g is suspicious, likely a parsing error
-                    continue
-                
-                items.append({
-                    'name': name,
-                    'quantity': quantity,
-                    'unit': unit,
-                    'raw_description': line
-                })
-            else:
-                # Try more flexible parsing: look for numbers in parentheses
-                # E.g., "Scrambled eggs (2 eggs)" or "Rice (150g)"
-                match = re.match(r'^([^(]+)\s*\((\d+(?:\.\d+)?)\s*([a-zA-Z]+)\)', line, re.IGNORECASE)
-                if match:
-                    name = match.group(1).strip()
-                    quantity = float(match.group(2))
-                    unit = match.group(3).lower()
-                    unit = self._normalize_unit(unit)
-                    
-                    items.append({
-                        'name': name,
-                        'quantity': quantity,
-                        'unit': unit,
-                        'raw_description': line
-                    })
+            items.append({
+                'name': name,
+                'quantity': quantity,
+                'unit': unit,
+                'raw_description': f"{name}: {quantity} {unit}"
+            })
         
         return items
     
@@ -381,30 +355,32 @@ Be as specific and accurate as possible with quantities. If you're unsure, provi
                 'raw_response': f"Simple pattern match: {quantity} {food_name}"
             }
         
-        prompt = f"""Parse this food description and extract individual items with quantities:
+        prompt = f"""Parse this food description and return ONLY valid JSON (no other text):
 
 "{description}"
 
-For EACH food item mentioned, provide:
-1. Food name (specific - e.g., "whole wheat toast" not just "bread")
-2. Quantity as a number (estimate if not specified)
-3. Unit (grams/g, pieces, slices, cups, tbsp, etc.)
+Return JSON in this EXACT format:
+{{
+  "items": [
+    {{"name": "food name", "quantity": 5, "unit": "pieces"}},
+    {{"name": "another food", "quantity": 150, "unit": "g"}}
+  ]
+}}
 
-Format your response EXACTLY as a numbered list:
-1. [Food name]: [quantity] [unit]
-2. [Food name]: [quantity] [unit]
-
-CRITICAL: Put the food name FIRST, then colon, then quantity and unit.
-WRONG: "5 roti: 1 g"
-CORRECT: "Roti: 5 pieces"
+Rules:
+- Be specific about food names (e.g., "whole wheat toast" not just "bread")
+- Quantity must be a number (estimate if not specified)
+- Unit: grams/g, pieces, slices, cups, tbsp, tsp, oz, etc.
+- For plural foods like "rotis", use singular as unit: "roti" or "pieces"
+- Estimate reasonable serving sizes if quantities aren't specified
 
 Examples:
-- "two eggs and toast" → 1. Scrambled eggs: 2 eggs, 2. Whole wheat toast: 2 slices
-- "coffee with milk and sugar" → 1. Coffee: 1 cup, 2. Whole milk: 2 tbsp, 3. Sugar: 1 tsp
-- "chicken salad" → 1. Grilled chicken: 150 g, 2. Mixed greens: 50 g, 3. Olive oil dressing: 1 tbsp
-- "5 rotis" → 1. Roti: 5 pieces
+- "5 rotis" → {{"items": [{{"name": "roti", "quantity": 5, "unit": "pieces"}}]}}
+- "two eggs and toast" → {{"items": [{{"name": "scrambled eggs", "quantity": 2, "unit": "eggs"}}, {{"name": "whole wheat toast", "quantity": 2, "unit": "slices"}}]}}
+- "coffee with milk" → {{"items": [{{"name": "coffee", "quantity": 1, "unit": "cup"}}, {{"name": "whole milk", "quantity": 2, "unit": "tbsp"}}]}}
+- "chicken salad" → {{"items": [{{"name": "grilled chicken", "quantity": 150, "unit": "g"}}, {{"name": "mixed greens", "quantity": 50, "unit": "g"}}]}}
 
-Estimate reasonable serving sizes if quantities aren't specified. Be specific about food types."""
+Return ONLY the JSON, nothing else."""
 
         try:
             # Use callback if provided (for testing)
